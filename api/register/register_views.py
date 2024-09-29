@@ -2,6 +2,7 @@ from django.db.models import Q
 from rest_framework.views import APIView
 
 from db.organization import Country, Department, District, Organization, State, Zone
+from django.utils.decorators import method_decorator
 from db.task import InterestGroup
 from db.user import Role, User
 from utils.response import CustomResponse
@@ -9,6 +10,9 @@ from utils.types import OrganizationType
 from utils.utils import send_template_mail
 from . import serializers
 from .register_helper import get_auth_token
+from django.views.decorators.cache import cache_page
+from django.core.cache import cache
+from mu_celery.task import send_email
 
 
 class UserRegisterValidateAPI(APIView):
@@ -24,12 +28,14 @@ class UserRegisterValidateAPI(APIView):
 
 
 class RoleAPI(APIView):
+    @method_decorator(cache_page(60 * 10))
     def get(self, request):
         roles = Role.objects.all().values("id", "title")
         return CustomResponse(response={"roles": roles}).get_success_response()
 
 
 class CollegesAPI(APIView):
+    @method_decorator(cache_page(60 * 10))
     def get(self, request):
         colleges = Organization.objects.filter(
             org_type=OrganizationType.COLLEGE.value
@@ -39,6 +45,7 @@ class CollegesAPI(APIView):
 
 
 class DepartmentAPI(APIView):
+    @method_decorator(cache_page(60 * 10))
     def get(self, request):
         department_serializer = Department.objects.all().values("id", "title")
 
@@ -52,6 +59,7 @@ class DepartmentAPI(APIView):
 
 
 class CompanyAPI(APIView):
+    @method_decorator(cache_page(60 * 10))
     def get(self, request):
         company_queryset = Organization.objects.filter(
             org_type=OrganizationType.COMPANY.value
@@ -76,7 +84,7 @@ class LearningCircleUserViewAPI(APIView):
             return CustomResponse(general_message="Invalid muid").get_failure_response()
 
         serializer = serializers.LearningCircleUserSerializer(user)
-        id, muid,  full_name, email, phone = serializer.data.values()
+        id, muid, full_name, email, phone = serializer.data.values()
 
         name = full_name
 
@@ -103,18 +111,19 @@ class RegisterDataAPI(APIView):
 
         if not create_user.is_valid():
             return CustomResponse(message=create_user.errors).get_failure_response()
-        
+
         user = create_user.save()
+        cache.set(f"db_user_{user.muid}", user, timeout=20)
         password = request.data["user"]["password"]
 
         res_data = get_auth_token(user.muid, password)
 
         response_data = serializers.UserDetailSerializer(user, many=False).data
 
-        send_template_mail(
-            context=response_data,
-            subject="YOUR TICKET TO µFAM IS HERE!",
-            address=["user_registration.html"],
+        send_email.delay(
+            response_data,
+            "YOUR TICKET TO µFAM IS HERE!",
+            ["user_registration.html"],
         )
 
         res_data["data"] = response_data
@@ -123,6 +132,7 @@ class RegisterDataAPI(APIView):
 
 
 class CountryAPI(APIView):
+    @method_decorator(cache_page(60 * 10))
     def get(self, request):
         countries = Country.objects.all()
 
@@ -203,6 +213,7 @@ class SchoolAPI(APIView):
 
 
 class CommunityAPI(APIView):
+    @method_decorator(cache_page(60 * 10))
     def get(self, request):
         community_queryset = Organization.objects.filter(
             org_type=OrganizationType.COMMUNITY.value
@@ -218,6 +229,7 @@ class CommunityAPI(APIView):
 
 
 class AreaOfInterestAPI(APIView):
+    @method_decorator(cache_page(60 * 10))
     def get(self, request):
         aoi_queryset = InterestGroup.objects.all()
 
@@ -245,6 +257,7 @@ class UserEmailVerificationAPI(APIView):
 
 
 class UserCountryAPI(APIView):
+    @method_decorator(cache_page(60 * 10))
     def get(self, request):
         country = Country.objects.all()
 
